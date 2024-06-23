@@ -1,20 +1,28 @@
 use starknet::ContractAddress;
 
+#[derive(Copy, Drop, Serde, starknet::Store)]
+pub struct Bookmark {
+    label: felt252,
+    url: felt252,
+}
+
 #[starknet::interface]
 pub trait IStarkmark<TContractState> {
     fn store_bookmark(
-        ref self: TContractState, bookmark: Starkmark::Bookmark);
-    fn get_bookmark(self: @TContractState, address: ContractAddress) -> Starkmark::Bookmark;
+        ref self: TContractState, bookmark: Bookmark);
+    fn get_bookmark(self: @TContractState, address: ContractAddress) -> Array<Bookmark>;
     fn get_owner(self: @TContractState) -> Starkmark::Person;
 }
 
 #[starknet::contract]
 mod Starkmark {
     use starknet::{ContractAddress, get_caller_address, storage_access::StorageBaseAddress};
+    use alexandria_storage::list::{List, ListTrait};
+    use super::Bookmark;
 
     #[storage]
     struct Storage {
-        bookmarks: LegacyMap::<ContractAddress, Bookmark>,
+        bookmarks: LegacyMap::<ContractAddress, List<Bookmark>>,
         owner: Person,
     }
 
@@ -33,18 +41,11 @@ mod Starkmark {
     #[derive(Drop, Serde, starknet::Store)]
     pub struct Person {
         address: ContractAddress,
-        bookmark: Bookmark,
-    }
-
-    #[derive(Copy, Drop, Serde, starknet::Store)]
-    pub struct Bookmark {
-        label: felt252,
-        url: felt252,
+        name: felt252,
     }
 
     #[constructor]
     fn constructor(ref self: ContractState, owner: Person) {
-        self.bookmarks.write(owner.address, owner.bookmark);
         self.owner.write(owner);
     }
 
@@ -56,8 +57,8 @@ mod Starkmark {
             self._store_bookmark(caller, bookmark);
         }
 
-        fn get_bookmark(self: @ContractState, address: ContractAddress) -> Bookmark {
-            self.bookmarks.read(address)
+        fn get_bookmark(self: @ContractState, address: ContractAddress) -> Array<Bookmark> {
+            self.bookmarks.read(address).array().unwrap()
         }
 
         fn get_owner(self: @ContractState) -> Person {
@@ -81,7 +82,9 @@ mod Starkmark {
         ) {
             // let total_bookmarks = self.total_bookmarks.read();
             let snapshot = @bookmark;
-            self.bookmarks.write(user, bookmark);
+            let mut old_bookmarks = self.bookmarks.read(user);
+            old_bookmarks.append(bookmark).unwrap();
+            self.bookmarks.write(user, old_bookmarks);
             self.emit(StoredBookmark { user: user, bookmark: *snapshot });
         }
     }
